@@ -1,0 +1,20 @@
+{
+  "scan_interval": 30,
+  "ports": [
+    22,
+    80,
+    443,
+    3000,
+    5432,
+    8080
+  ],
+  "port_ranges": [
+    {
+      "start": 8000,
+      "end": 8100
+    }
+  ],
+  "alert_on_new": true,
+  "alert_on_closed": true,
+  "log_file": "/var/log/portwatch.log"
+}
