@@ -89,3 +89,18 @@ func TestScanPortRange(t *testing.T) {
 		t.Error("expected non-nil result")
 	}
 }
+
+func TestScanPortRangeResultCount(t *testing.T) {
+	s := New(100 * time.Millisecond)
+
+	const start, end = 1, 10
+	ports, err := s.ScanPortRange(start, end)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	expected := end - start + 1
+	if len(ports) != expected {
+		t.Errorf("expected %d port results, got %d", expected, len(ports))
+	}
+}
