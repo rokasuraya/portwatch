@@ -22,19 +22,26 @@ func freePort(t *testing.T) string {
 	return addr
 }
 
-func TestIntegration_ListenAndServe(t *testing.T) {
+// startServer creates and starts a healthcheck server on a free port,
+// registering a cleanup function to shut it down when the test completes.
+func startServer(t *testing.T) *healthcheck.Server {
+	t.Helper()
 	addr := freePort(t)
 	srv := healthcheck.New(addr)
-
 	go func() { _ = srv.ListenAndServe() }()
 	time.Sleep(50 * time.Millisecond) // allow server to start
-	defer srv.Shutdown()
+	t.Cleanup(func() { srv.Shutdown() })
+	return srv
+}
+
+func TestIntegration_ListenAndServe(t *testing.T) {
+	srv := startServer(t)
 
 	srv.RecordScan()
 	srv.RecordScan()
 	srv.RecordScan()
 
-	resp, err := http.Get("http://" + addr + "/healthz")
+	resp, err := http.Get("http://" + srv.Addr() + "/healthz")
 	if err != nil {
 		t.Fatalf("GET /healthz failed: %v", err)
 	}
