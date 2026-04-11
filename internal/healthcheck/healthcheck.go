@@ -54,7 +54,9 @@ func (s *Server) Shutdown() error {
 	return s.server.Close()
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+// CurrentStatus returns a snapshot of the current health status without
+// requiring an HTTP request. This is useful for logging or internal checks.
+func (s *Server) CurrentStatus() Status {
 	status := Status{
 		OK:        true,
 		Uptime:    time.Since(s.start).Truncate(time.Second).String(),
@@ -63,6 +65,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	if t, ok := s.lastScan.Load().(time.Time); ok && !t.IsZero() {
 		status.LastScan = t
 	}
+	return status
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	status := s.CurrentStatus()
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(status)
 }
