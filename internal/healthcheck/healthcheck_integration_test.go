@@ -1,0 +1,63 @@
+package healthcheck_test
+
+import (
+	"encoding/json"
+	"net"
+	"net/http"
+	"testing"
+	"time"
+
+	"github.com/user/portwatch/internal/healthcheck"
+)
+
+// freePort returns an available TCP port on localhost.
+func freePort(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("could not find free port: %v", err)
+	}
+	addr := ln.Addr().String()
+	ln.Close()
+	return addr
+}
+
+func TestIntegration_ListenAndServe(t *testing.T) {
+	addr := freePort(t)
+	srv := healthcheck.New(addr)
+
+	go func() { _ = srv.ListenAndServe() }()
+	time.Sleep(50 * time.Millisecond) // allow server to start
+	defer srv.Shutdown()
+
+	srv.RecordScan()
+	srv.RecordScan()
+	srv.RecordScan()
+
+	resp, err := http.Get("http://" + addr + "/healthz")
+	if err != nil {
+		t.Fatalf("GET /healthz failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", resp.StatusCode)
+	}
+
+	var status healthcheck.Status
+	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !status.OK {
+		t.Error("expected ok=true")
+	}
+	if status.ScanCount != 3 {
+		t.Errorf("expected scan_count=3, got %d", status.ScanCount)
+	}
+	if status.Uptime == "" {
+		t.Error("expected non-empty uptime")
+	}
+	if status.LastScan.IsZero() {
+		t.Error("expected last_scan to be populated")
+	}
+}
