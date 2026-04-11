@@ -58,6 +58,8 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 // tick performs a single scan cycle: scan ports, update state, and alert on changes.
 func (d *Daemon) tick() error {
+	start := time.Now()
+
 	open, err := d.scanner.ScanRange(d.cfg.PortStart, d.cfg.PortEnd)
 	if err != nil {
 		return err
@@ -67,6 +69,13 @@ func (d *Daemon) tick() error {
 	if err != nil {
 		return err
 	}
+
+	log.Printf("scan completed in %s: %d open ports, %d opened, %d closed",
+		time.Since(start).Round(time.Millisecond),
+		len(open),
+		len(diff.Opened),
+		len(diff.Closed),
+	)
 
 	return d.alerter.Notify(diff)
 }
