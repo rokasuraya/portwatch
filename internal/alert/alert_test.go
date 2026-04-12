@@ -87,4 +87,16 @@ func TestNotify_MixedDiff(t *testing.T) {
 	if len(alerts) != 2 {
 		t.Fatalf("expected 2 alerts, got %d", len(alerts))
 	}
+
+	// Verify that opened ports produce ALERT level and closed ports produce WARN level.
+	levels := make(map[string]int)
+	for _, a := range alerts {
+		levels[a.Level]++
+	}
+	if levels[alert.LevelAlert] != 1 {
+		t.Errorf("expected 1 ALERT level alert, got %d", levels[alert.LevelAlert])
+	}
+	if levels[alert.LevelWarn] != 1 {
+		t.Errorf("expected 1 WARN level alert, got %d", levels[alert.LevelWarn])
+	}
 }
