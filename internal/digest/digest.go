@@ -15,6 +15,9 @@ import (
 // Digest is a hex-encoded SHA-256 fingerprint of a snapshot's entries.
 type Digest string
 
+// Empty is the Digest value for an empty set of entries.
+const Empty Digest = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 // Compute returns a Digest for the given snapshot entries.
 // The entries are sorted by protocol+port before hashing so the result
 // is independent of scan order.
@@ -40,4 +43,10 @@ func Equal(a, b Digest) bool {
 // String returns the hex string representation of the digest.
 func (d Digest) String() string {
 	return string(d)
+}
+
+// IsZero reports whether the digest represents an empty snapshot,
+// i.e. no open ports were recorded.
+func (d Digest) IsZero() bool {
+	return d == Empty
 }
