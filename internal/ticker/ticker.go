@@ -42,6 +42,13 @@ func (t *Ticker) Run(ctx context.Context) {
 	}
 }
 
+// RunNow starts the ticker loop, firing the callback immediately before
+// waiting for the first interval. It blocks until ctx is cancelled.
+func (t *Ticker) RunNow(ctx context.Context) {
+	t.onTick(ctx)
+	t.Run(ctx)
+}
+
 // next returns the duration until the next tick, applying jitter if configured.
 func (t *Ticker) next() time.Duration {
 	if t.jitter == 0 {
