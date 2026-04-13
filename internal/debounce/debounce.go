@@ -35,6 +35,9 @@ func (d *Debouncer) Trigger(fn func()) {
 
 // Flush cancels any pending timer and executes fn immediately if one was
 // scheduled. Returns true if a pending call was flushed.
+//
+// Note: Flush returns false if the timer has already fired (i.e., fn already
+// executed), even if a prior Trigger call was made.
 func (d *Debouncer) Flush() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -56,4 +59,12 @@ func (d *Debouncer) Reset() {
 		d.timer.Stop()
 		d.timer = nil
 	}
+}
+
+// Pending reports whether a trigger is currently scheduled and has not yet
+// fired.
+func (d *Debouncer) Pending() bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.timer != nil
 }
