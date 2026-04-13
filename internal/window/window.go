@@ -61,6 +61,18 @@ func (w *Window) Reset() {
 	w.buckets = w.buckets[:0]
 }
 
+// Oldest returns the timestamp of the earliest event still within the window,
+// and false if the window is empty.
+func (w *Window) Oldest() (time.Time, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.evict(time.Now())
+	if len(w.buckets) == 0 {
+		return time.Time{}, false
+	}
+	return w.buckets[0].at, true
+}
+
 // evict removes buckets that have fallen outside the window. Must be called
 // with w.mu held.
 func (w *Window) evict(now time.Time) {
