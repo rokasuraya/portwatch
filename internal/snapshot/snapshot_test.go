@@ -66,6 +66,25 @@ func TestCompare_NoChange(t *testing.T) {
 	}
 }
 
+func TestCompare_MultipleChanges(t *testing.T) {
+	prev := snapshot.New([]snapshot.Entry{
+		{Protocol: "tcp", Port: 22},
+		{Protocol: "tcp", Port: 80},
+	})
+	curr := snapshot.New([]snapshot.Entry{
+		{Protocol: "tcp", Port: 80},
+		{Protocol: "tcp", Port: 443},
+	})
+
+	d := snapshot.Compare(prev, curr)
+	if len(d.Opened) != 1 || d.Opened[0].Port != 443 {
+		t.Fatalf("expected one opened port 443, got %+v", d.Opened)
+	}
+	if len(d.Closed) != 1 || d.Closed[0].Port != 22 {
+		t.Fatalf("expected one closed port 22, got %+v", d.Closed)
+	}
+}
+
 func TestDiff_IsEmpty_True(t *testing.T) {
 	d := snapshot.Diff{}
 	if !d.IsEmpty() {
