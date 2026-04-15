@@ -85,6 +85,24 @@ func TestCompare_MultipleChanges(t *testing.T) {
 	}
 }
 
+func TestCompare_ProtocolDistinct(t *testing.T) {
+	// tcp:80 and udp:80 are distinct entries; opening udp:80 should not
+	// suppress the detection of a new port just because tcp:80 existed.
+	prev := snapshot.New([]snapshot.Entry{{Protocol: "tcp", Port: 80}})
+	curr := snapshot.New([]snapshot.Entry{
+		{Protocol: "tcp", Port: 80},
+		{Protocol: "udp", Port: 80},
+	})
+
+	d := snapshot.Compare(prev, curr)
+	if len(d.Opened) != 1 || d.Opened[0].Protocol != "udp" || d.Opened[0].Port != 80 {
+		t.Fatalf("expected one opened udp:80, got %+v", d.Opened)
+	}
+	if len(d.Closed) != 0 {
+		t.Fatalf("expected no closed ports, got %+v", d.Closed)
+	}
+}
+
 func TestDiff_IsEmpty_True(t *testing.T) {
 	d := snapshot.Diff{}
 	if !d.IsEmpty() {
