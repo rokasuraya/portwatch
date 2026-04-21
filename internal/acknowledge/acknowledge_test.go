@@ -73,6 +73,13 @@ func TestRemove_ClearsAck(t *testing.T) {
 	}
 }
 
+func TestRemove_NonexistentEntry(t *testing.T) {
+	a, _ := acknowledge.New(tempPath(t))
+	if err := a.Remove("tcp", 9999); err != nil {
+		t.Fatalf("Remove of non-existent entry should not error, got: %v", err)
+	}
+}
+
 func TestAck_PersistsAcrossSessions(t *testing.T) {
 	path := tempPath(t)
 	a1, _ := acknowledge.New(path)
