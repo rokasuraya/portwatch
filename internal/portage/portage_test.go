@@ -4,10 +4,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/username/portwatch/internal/snapshot"
+	"portwatch/internal/snapshot"
 )
 
-func makeSnap(entries []snapshot.Entry) *snapshot.Snapshot {
+var epoch = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+func makeSnap(ports []int, proto string) *snapshot.Snapshot {
+	entries := make([]snapshot.Entry, len(ports))
+	for i, p := range ports {
+		entries[i] = snapshot.Entry{Port: p, Protocol: proto}
+	}
 	return snapshot.New(entries)
 }
 
@@ -16,91 +22,88 @@ func fixedNow(t time.Time) func() time.Time {
 }
 
 func TestNew_ReturnsTracker(t *testing.T) {
-	tr := New()
+	tr := New(nil)
 	if tr == nil {
 		t.Fatal("expected non-nil tracker")
 	}
-	if tr.Len() != 0 {
-		t.Fatalf("expected 0 entries, got %d", tr.Len())
+	if len(tr.All()) != 0 {
+		t.Fatal("expected empty tracker")
 	}
 }
 
 func TestObserve_RecordsFirstSeen(t *testing.T) {
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	tr := New()
-	tr.now = fixedNow(base)
-
-	snap := makeSnap([]snapshot.Entry{{Port: 80, Proto: "tcp"}})
-	tr.Observe(snap)
-
-	if tr.Len() != 1 {
-		t.Fatalf("expected 1 tracked port, got %d", tr.Len())
-	}
-	e, ok := tr.Age(80, "tcp")
+	tr := New(fixedNow(epoch))
+	tr.Observe(makeSnap([]int{80}, "tcp"))
+	e, ok := tr.Get(80, "tcp")
 	if !ok {
-		t.Fatal("expected entry for port 80/tcp")
+		t.Fatal("expected entry for port 80")
 	}
-	if !e.FirstSeen.Equal(base) {
-		t.Fatalf("expected FirstSeen %v, got %v", base, e.FirstSeen)
+	if !e.FirstSeen.Equal(epoch) {
+		t.Errorf("FirstSeen = %v, want %v", e.FirstSeen, epoch)
+	}
+	if e.SeenCount != 1 {
+		t.Errorf("SeenCount = %d, want 1", e.SeenCount)
 	}
 }
 
 func TestObserve_DoesNotResetFirstSeen(t *testing.T) {
-	base := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	later := base.Add(5 * time.Minute)
-	tr := New()
-	tr.now = fixedNow(base)
+	tr := New(fixedNow(epoch))
+	tr.Observe(makeSnap([]int{443}, "tcp"))
 
-	snap := makeSnap([]snapshot.Entry{{Port: 443, Proto: "tcp"}})
-	tr.Observe(snap)
-
+	later := epoch.Add(5 * time.Minute)
 	tr.now = fixedNow(later)
-	tr.Observe(snap) // same port, should not reset
+	tr.Observe(makeSnap([]int{443}, "tcp"))
 
-	e, ok := tr.Age(443, "tcp")
+	e, ok := tr.Get(443, "tcp")
 	if !ok {
-		t.Fatal("expected entry for port 443/tcp")
+		t.Fatal("expected entry")
 	}
-	if !e.FirstSeen.Equal(base) {
-		t.Fatalf("FirstSeen should not change: got %v", e.FirstSeen)
+	if !e.FirstSeen.Equal(epoch) {
+		t.Errorf("FirstSeen should not change: got %v", e.FirstSeen)
 	}
-	if e.Age < 5*time.Minute {
-		t.Fatalf("expected age >= 5m, got %v", e.Age)
+	if !e.LastSeen.Equal(later) {
+		t.Errorf("LastSeen = %v, want %v", e.LastSeen, later)
 	}
-}
-
-func TestObserve_RemovesClosedPorts(t *testing.T) {
-	tr := New()
-	tr.now = fixedNow(time.Now())
-
-	snap := makeSnap([]snapshot.Entry{{Port: 22, Proto: "tcp"}})
-	tr.Observe(snap)
-	if tr.Len() != 1 {
-		t.Fatalf("expected 1, got %d", tr.Len())
-	}
-
-	tr.Observe(makeSnap(nil)) // port closed
-	if tr.Len() != 0 {
-		t.Fatalf("expected 0 after close, got %d", tr.Len())
-	}
-	_, ok := tr.Age(22, "tcp")
-	if ok {
-		t.Fatal("expected no entry for closed port")
+	if e.SeenCount != 2 {
+		t.Errorf("SeenCount = %d, want 2", e.SeenCount)
 	}
 }
 
-func TestObserve_NilSnapshot(t *testing.T) {
-	tr := New()
-	tr.Observe(nil) // must not panic
-	if tr.Len() != 0 {
-		t.Fatalf("expected 0, got %d", tr.Len())
+func TestObserve_RemovesClosedPort(t *testing.T) {
+	tr := New(fixedNow(epoch))
+	tr.Observe(makeSnap([]int{22, 80}, "tcp"))
+	tr.Observe(makeSnap([]int{80}, "tcp"))
+
+	if _, ok := tr.Get(22, "tcp"); ok {
+		t.Error("port 22 should have been removed")
+	}
+	if _, ok := tr.Get(80, "tcp"); !ok {
+		t.Error("port 80 should still be present")
 	}
 }
 
-func TestAge_UnknownPort(t *testing.T) {
-	tr := New()
-	_, ok := tr.Age(9999, "tcp")
-	if ok {
-		t.Fatal("expected false for unknown port")
+func TestObserve_NilSnapshotNoOp(t *testing.T) {
+	tr := New(fixedNow(epoch))
+	tr.Observe(makeSnap([]int{8080}, "tcp"))
+	tr.Observe(nil)
+	if _, ok := tr.Get(8080, "tcp"); !ok {
+		t.Error("nil snapshot should not clear entries")
+	}
+}
+
+func TestEntry_Age(t *testing.T) {
+	e := Entry{FirstSeen: epoch}
+	got := e.Age(epoch.Add(10 * time.Minute))
+	if got != 10*time.Minute {
+		t.Errorf("Age = %v, want 10m", got)
+	}
+}
+
+func TestAll_ReturnsCopy(t *testing.T) {
+	tr := New(fixedNow(epoch))
+	tr.Observe(makeSnap([]int{22, 80, 443}, "tcp"))
+	all := tr.All()
+	if len(all) != 3 {
+		t.Errorf("len(All) = %d, want 3", len(all))
 	}
 }

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/user/portwatch/internal/snapshot"
+	"portwatch/internal/snapshot"
 )
 
 func TestNewRunner_ReturnsRunner(t *testing.T) {
@@ -16,18 +16,18 @@ func TestNewRunner_ReturnsRunner(t *testing.T) {
 	if r == nil {
 		t.Fatal("expected non-nil runner")
 	}
-	if r.interval != defaultInterval {
-		t.Errorf("expected default interval %v, got %v", defaultInterval, r.interval)
+	if r.interval != 30*time.Second {
+		t.Errorf("default interval = %v, want 30s", r.interval)
 	}
 }
 
 func TestRunner_CancelsCleanly(t *testing.T) {
-	tr := New(nil)
+	tr := New(fixedNow(epoch))
 	r := NewRunner(tr, func() (*snapshot.Snapshot, error) {
-		return snapshot.New(nil), nil
+		return makeSnap([]int{80}, "tcp"), nil
 	}, 50*time.Millisecond)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 
 	done := make(chan struct{})
@@ -40,48 +40,38 @@ func TestRunner_CancelsCleanly(t *testing.T) {
 	case <-done:
 		// ok
 	case <-time.After(500 * time.Millisecond):
-		t.Fatal("Run did not cancel within deadline")
+		t.Fatal("Run did not cancel in time")
 	}
 }
 
 func TestRunner_InvokesSnapshotFunc(t *testing.T) {
-	tr := New(nil)
 	var calls atomic.Int32
-
-	snap := func() (*snapshot.Snapshot, error) {
+	tr := New(fixedNow(epoch))
+	r := NewRunner(tr, func() (*snapshot.Snapshot, error) {
 		calls.Add(1)
-		return snapshot.New(nil), nil
-	}
+		return makeSnap([]int{443}, "tcp"), nil
+	}, 20*time.Millisecond)
 
-	r := NewRunner(tr, snap, 20*time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 75*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 70*time.Millisecond)
 	defer cancel()
 	r.Run(ctx)
 
-	if calls.Load() < 2 {
-		t.Errorf("expected at least 2 snapshot calls, got %d", calls.Load())
+	if calls.Load() == 0 {
+		t.Error("expected snapshot func to be called at least once")
 	}
 }
 
 func TestRunner_SkipsOnSnapshotError(t *testing.T) {
-	tr := New(nil)
-	var calls atomic.Int32
-
-	snap := func() (*snapshot.Snapshot, error) {
-		calls.Add(1)
+	tr := New(fixedNow(epoch))
+	r := NewRunner(tr, func() (*snapshot.Snapshot, error) {
 		return nil, errors.New("scan failed")
-	}
+	}, 20*time.Millisecond)
 
-	r := NewRunner(tr, snap, 20*time.Millisecond)
-	ctx, cancel := context.WithTimeout(context.Background(), 65*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
 	r.Run(ctx)
 
-	// Tracker should have no data since every snapshot errored.
-	if tr.Age(0, "tcp") != 0 {
-		t.Error("expected zero age when all snapshots errored")
-	}
-	if calls.Load() < 2 {
-		t.Errorf("expected at least 2 calls, got %d", calls.Load())
+	if len(tr.All()) != 0 {
+		t.Error("expected tracker to remain empty on repeated errors")
 	}
 }

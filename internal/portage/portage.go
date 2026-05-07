@@ -6,77 +6,97 @@ import (
 	"sync"
 	"time"
 
-	"github.com/username/portwatch/internal/snapshot"
+	"portwatch/internal/snapshot"
 )
 
-// Entry holds first-seen metadata for a single port.
+// Entry holds age metadata for a single port.
 type Entry struct {
+	Port      int
+	Protocol  string
 	FirstSeen time.Time
-	Age       time.Duration
+	LastSeen  time.Time
+	SeenCount int
 }
 
-// Tracker records when each port was first observed open and computes its age.
+// Age returns how long the port has been continuously observed.
+func (e Entry) Age(now time.Time) time.Duration {
+	return now.Sub(e.FirstSeen)
+}
+
+// Tracker records first-seen and last-seen times for open ports.
 type Tracker struct {
 	mu      sync.Mutex
-	firstSeen map[string]time.Time
+	entries map[string]*Entry
 	now     func() time.Time
 }
 
-// New returns a Tracker using the real wall clock.
-func New() *Tracker {
+// New returns a new Tracker. If now is nil, time.Now is used.
+func New(now func() time.Time) *Tracker {
+	if now == nil {
+		now = time.Now
+	}
 	return &Tracker{
-		firstSeen: make(map[string]time.Time),
-		now:       time.Now,
+		entries: make(map[string]*Entry),
+		now:     now,
 	}
 }
 
-func portKey(port uint16, proto string) string {
-	return fmt.Sprintf("%s:%d", proto, port)
+func portKey(port int, proto string) string {
+	return fmt.Sprintf("%d/%s", port, proto)
 }
 
-// Observe updates the tracker from a snapshot, recording first-seen times
-// for newly opened ports and removing entries for ports no longer present.
+// Observe updates age tracking from the provided snapshot.
 func (t *Tracker) Observe(snap *snapshot.Snapshot) {
 	if snap == nil {
 		return
 	}
+	now := t.now()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	active := make(map[string]struct{}, len(snap.Entries))
+	seen := make(map[string]struct{})
 	for _, e := range snap.Entries {
-		k := portKey(e.Port, e.Proto)
-		active[k] = struct{}{}
-		if _, ok := t.firstSeen[k]; !ok {
-			t.firstSeen[k] = t.now()
+		k := portKey(e.Port, e.Protocol)
+		seen[k] = struct{}{}
+		if existing, ok := t.entries[k]; ok {
+			existing.LastSeen = now
+			existing.SeenCount++
+		} else {
+			t.entries[k] = &Entry{
+				Port:      e.Port,
+				Protocol:  e.Protocol,
+				FirstSeen: now,
+				LastSeen:  now,
+				SeenCount: 1,
+			}
 		}
 	}
-
-	for k := range t.firstSeen {
-		if _, ok := active[k]; !ok {
-			delete(t.firstSeen, k)
+	// Remove ports no longer present.
+	for k := range t.entries {
+		if _, ok := seen[k]; !ok {
+			delete(t.entries, k)
 		}
 	}
 }
 
-// Age returns the Entry for a given port/proto pair.
-// ok is false if the port is not currently tracked.
-func (t *Tracker) Age(port uint16, proto string) (Entry, bool) {
+// Get returns the Entry for the given port/protocol, and whether it exists.
+func (t *Tracker) Get(port int, proto string) (Entry, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-
-	k := portKey(port, proto)
-	fs, ok := t.firstSeen[k]
+	e, ok := t.entries[portKey(port, proto)]
 	if !ok {
 		return Entry{}, false
 	}
-	now := t.now()
-	return Entry{FirstSeen: fs, Age: now.Sub(fs)}, true
+	return *e, true
 }
 
-// Len returns the number of ports currently being tracked.
-func (t *Tracker) Len() int {
+// All returns a copy of all tracked entries.
+func (t *Tracker) All() []Entry {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return len(t.firstSeen)
+	out := make([]Entry, 0, len(t.entries))
+	for _, e := range t.entries {
+		out = append(out, *e)
+	}
+	return out
 }
